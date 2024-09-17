@@ -5,13 +5,13 @@ from gurobipy import GRB
 from matplotlib.lines import Line2D
 
 # Parameters
-T = 30  # Prediction horizon (seconds)
+T = 25  # Prediction horizon (seconds)
 dt = 0.3  # Time step (seconds)
 N = int(T / dt)  # Number of time steps
 
 # Vehicle state bounds
 x_min, x_max = 0, np.inf
-y_min, y_max = 0.2, 10  # Road width is 10 meters (2 lanes)
+y_min, y_max = 0.2, 6  # Road width is 10 meters (2 lanes)
 v_x_min, v_x_max = 0, 10
 v_y_min, v_y_max = -1, 1
 a_x_min, a_x_max = -3, 3
@@ -20,7 +20,7 @@ j_x_min, j_x_max = -2.5, 2.5
 j_y_min, j_y_max = -0.5, 0.5
 
 # Initial state and reference values
-x0, y0 = 5, 4.5  # Starting in the middle of the right lane
+x0, y0 = 5, 3.5  # Starting in the middle of the right lane
 v_x0, v_y0 = 5, 0  # Initial speed is 15 m/s
 a_x0, a_y0 = 0, 0
 v_r = 5.0  # Reference speed
@@ -41,8 +41,8 @@ L_v = 15  # Reduced from 20
 W_v = 1.5  # Reduced from 2
 
 # Cost function weights
-q1, q2, q3, q4, q5 = 2, 1, 1, 1, 2  # Increased speed priority, decreased lane deviation penalty
-r1, r2 = 4, 4
+q1, q2, q3, q4, q5 = 2, 1, 10, 1, 2  # Increased speed priority, decreased lane deviation penalty
+r1, r2 = 10, 10
 
 # Create the model
 model = gp.Model("Overtaking_MIQP")
@@ -109,6 +109,9 @@ for k in range(N + 1):
             + q4 * v_y[k] ** 2 + q5 * a_y[k] ** 2)
 for k in range(N):
     obj += r1 * j_x[k] ** 2 + r2 * j_y[k] ** 2
+
+# punishment for
+
 
 # Add time-dependent cost
 #time_weight = 0.1
@@ -293,7 +296,7 @@ for vehicle_id, vehicle in enumerate(oncoming_vehicles):
                            textcoords='offset points', fontsize=8, color='orange')
 
 axs[0, 0].set_xlim(0, max(x_res) + 10)
-axs[0, 0].set_ylim(0, 10)
+axs[0, 0].set_ylim(0, y_max)
 
 # Tạo legend với gradient color
 legend_elements = [
