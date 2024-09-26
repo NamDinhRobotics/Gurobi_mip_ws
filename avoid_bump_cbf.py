@@ -2,12 +2,10 @@ import gurobipy as gp
 import matplotlib.pyplot as plt
 import numpy as np
 from gurobipy import GRB
-import pygame
-import sys
 
 # Parameters
-T = 20  # Prediction horizon (seconds)
-dt = 0.3  # Time step (seconds)
+T = 15  # Prediction horizon (seconds)
+dt = 0.2  # Time step (seconds)
 N = int(T / dt)  # Number of time steps
 
 # Vehicle state bounds
@@ -33,12 +31,12 @@ y_r = y0  # Reference lateral position (stay in lane)
 
 # Obstacle parameters (bounding rectangles)
 obstacles = [
-    {'x_center': 40, 'y_center': 3.5, 'L': 10, 'W': 3},
-    {'x_center': 100, 'y_center': 3.5, 'L': 10, 'W': 3}
+    {'x_center': 80, 'y_center': 1.5, 'L': 10, 'W': 2},
+    {'x_center': 200, 'y_center': 3.5, 'L': 10, 'W': 3}
 ]
 
 # Speed bump parameters
-x_bump_start, x_bump_end = 60, 65
+x_bump_start, x_bump_end = 120, 150
 v_max_bump = 5
 
 # Cost function weights
@@ -84,6 +82,16 @@ for k in range(N):
     model.addConstr(v_y[k + 1] == v_y[k] + a_y[k] * dt + 0.5 * j_y[k] * dt ** 2)
     model.addConstr(a_x[k + 1] == a_x[k] + j_x[k] * dt)
     model.addConstr(a_y[k + 1] == a_y[k] + j_y[k] * dt)
+
+# Adding CBF constraints for maintaining y_min <= y <= y_max
+c_min = 1.0  # constant for CBF on y_min
+c_max = 1.0  # constant for CBF on y_max
+for k in range(N + 1):
+    # Ràng buộc CBF để đảm bảo y >= y_min
+    model.addConstr(v_y[k] >= -c_min * (y[k] - y_min), name=f"CBF_y_min_{k}")
+
+    # Ràng buộc CBF để đảm bảo y <= y_max
+    model.addConstr(v_y[k] <= c_max * (y_max - y[k]), name=f"CBF_y_max_{k}")
 
 # Add constraints for theta and omega (equations 5 and 6 in the paper)
 for k in range(N+1):
@@ -151,127 +159,14 @@ a_x_res = [a_x[k].X for k in range(N + 1)]
 a_y_res = [a_y[k].X for k in range(N + 1)]
 j_x_res = [j_x[k].X for k in range(N)]
 j_y_res = [j_y[k].X for k in range(N)]
-#######################################################
-import pygame
-import sys
-import time
-import math
 
-# Initialize Pygame
-pygame.init()
-
-# Screen setup
-width, height = 800, 400
-screen = pygame.display.set_mode((width, height))
-pygame.display.set_caption("Vehicle Trajectory Visualization")
-
-# Colors
-WHITE = (255, 255, 255)
-BLUE = (0, 0, 255)
-LIGHT_BLUE = (173, 216, 230)
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-GRAY = (200, 200, 200)
-
-# Scale factors
-scale_x = width / (max(x_res) + 10)
-scale_y = height / 10  # Since y_max is 5
-
-# Car dimensions
-car_length = 40
-car_height = 20
-
-def draw_car(surface, x, y, angle, color):
-    car = pygame.Surface((car_length, car_height), pygame.SRCALPHA)
-    pygame.draw.rect(car, color, (0, 0, car_length, car_height))
-    pygame.draw.polygon(car, color,
-                        [(car_length, car_height // 2), (car_length - 10, 0), (car_length - 10, car_height)])
-    rotated_car = pygame.transform.rotate(car, -math.degrees(angle))
-    new_rect = rotated_car.get_rect(center=(x + car_length // 2, y + car_height // 2))
-    surface.blit(rotated_car, new_rect.topleft)
-
-def calculate_heading(x1, y1, x2, y2):
-    dx = x2 - x1
-    dy = y2 - y1
-    return math.atan2(dy, dx)
-
-# Trail list for ego vehicle
-ego_trail = []
-
-# Main simulation loop
-clock = pygame.time.Clock()
-frame = 0
-
-running = True
-prev_x, prev_y = x_res[0], y_res[0]  # Initialize previous position
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-
-    screen.fill(WHITE)
-
-    # Draw road
-    pygame.draw.rect(screen, GRAY, (0, height // 2 - 50, width, 100))
-
-    # Draw speed bump as vertical lines
-    bump_start = int(x_bump_start * scale_x)
-    bump_end = int(x_bump_end * scale_x)
-    pygame.draw.line(screen, GREEN, (bump_start, 0), (bump_start, height), 3)
-    pygame.draw.line(screen, GREEN, (bump_end, 0), (bump_end, height), 3)
-
-    # Draw obstacles
-    for obs in obstacles:
-        x_obs = int((obs['x_center'] - obs['L']) * scale_x)
-        y_obs = int(height - (obs['y_center'] + obs['W'] / 2) * scale_y)
-        w_obs = int(2 * obs['L'] * scale_x)
-        h_obs = int(obs['W'] * scale_y)
-        pygame.draw.rect(screen, RED, (x_obs, y_obs, w_obs, h_obs))
-
-    # Draw ego vehicle trail
-    for pos in ego_trail:
-        pygame.draw.circle(screen, LIGHT_BLUE, pos, 2)
-
-    # Draw ego vehicle
-    if frame < len(x_res):
-        ego_x = int(x_res[frame] * scale_x)
-        ego_y = int(height - y_res[frame] * scale_y)
-
-        # Calculate heading using previous and current position
-        if frame > 0:
-            ego_heading = calculate_heading(prev_x, prev_y, ego_x, ego_y)
-        else:
-            ego_heading = 0  # For the first frame, assume heading is 0
-
-        draw_car(screen, ego_x - car_length // 2, ego_y - car_height // 2, ego_heading, BLUE)
-
-        # Add current position to trail
-        ego_trail.append((ego_x, ego_y))
-
-        # Display frame number and vehicle position
-        font = pygame.font.Font(None, 36)
-        text = font.render(f"Frame: {frame}, x: {x_res[frame]:.2f}, y: {y_res[frame]:.2f}", True, (0, 0, 0))
-        screen.blit(text, (10, 10))
-
-        # Update previous position for next frame
-        prev_x, prev_y = ego_x, ego_y
-
-        frame += 1
-    else:
-        # Display end message when simulation is complete
-        font = pygame.font.Font(None, 36)
-        text = font.render("Simulation Complete", True, (0, 0, 0))
-        screen.blit(text, (width // 2 - 100, height // 2))
-
-    pygame.display.flip()
-    clock.tick(30)  # Adjust for desired frame rate
-    time.sleep(0.1)  # Add a small delay to slow down the simulation
-
-pygame.quit()
-#######################################################
 # Plot results
+# Sau khi trích xuất kết quả, thêm đoạn mã sau để vẽ các biểu đồ bổ sung
+
+# Tạo lưới biểu đồ
 fig, axs = plt.subplots(3, 2, figsize=(15, 20))
 
+# 1. Quỹ đạo xe và chướng ngại vật
 # 1. Quỹ đạo xe và chướng ngại vật
 axs[0, 0].plot(x_res, y_res, 'b-', linewidth=2, label='Vehicle Trajectory')
 axs[0, 0].set_xlabel('x (m)')

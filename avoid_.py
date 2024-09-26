@@ -72,22 +72,22 @@ for k in range(N):
     model.addConstr(a_y[k + 1] == a_y[k] + j_y[k] * dt)
 
 # Obstacle avoidance constraints (Equation 11 from the paper)
-# Thay đổi ràng buộc tránh va chạm chướng ngại vật (Phương trình 11 từ bài báo)
+# Thay đổi ràng buộc tránh va chạm chướng ngại vật (Eq. 11 từ bài báo)
 for obs_id, obs in enumerate(obstacles):
     x_obs, y_obs = obs['x_center'], obs['y_center']
     L, W = obs['L'], obs['W']
 
     for k in range(N + 1):
-        # Phương trình 11a
+        # Eq. 11a
         model.addGenConstrIndicator(delta_obs[obs_id, 0][k], True, x[k] <= x_obs - L)
-        # Phương trình 11b
+        # Eq. 11b
         model.addGenConstrIndicator(delta_obs[obs_id, 1][k], True, x[k] >= x_obs + L)
-        # Phương trình 11c
+        # Eq. 11c
         model.addGenConstrIndicator(delta_obs[obs_id, 2][k], True, y[k] <= y_obs - W)
-        # Phương trình 11d
+        # Eq. 11d
         model.addGenConstrIndicator(delta_obs[obs_id, 3][k], True, y[k] >= y_obs + W)
 
-        # Phương trình 11e
+        # Eq. 11e
         model.addConstr(delta_obs[obs_id, 0][k] + delta_obs[obs_id, 1][k] + delta_obs[obs_id, 2][k] + delta_obs[obs_id, 3][k] == 1)
 
 # Objective function: Minimize cost of deviation from reference trajectory and control efforts

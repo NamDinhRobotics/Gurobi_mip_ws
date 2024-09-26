@@ -6,8 +6,8 @@ import pygame
 import sys
 
 # Parameters
-T = 20  # Prediction horizon (seconds)
-dt = 0.3  # Time step (seconds)
+T = 10  # Prediction horizon (seconds)
+dt = 0.1  # Time step (seconds)
 N = int(T / dt)  # Number of time steps
 
 # Vehicle state bounds
@@ -67,6 +67,8 @@ for obs_id, obs in enumerate(obstacles):
 delta1 = model.addVars(N+1, vtype=GRB.BINARY, name="delta1")
 delta2 = model.addVars(N+1, vtype=GRB.BINARY, name="delta2")
 delta3 = model.addVars(N+1, vtype=GRB.BINARY, name="delta3")
+delta4 = model.addVars(N+1, vtype=GRB.BINARY, name="delta4")
+
 
 # Set initial conditions
 model.addConstr(x[0] == x0)
@@ -85,6 +87,16 @@ for k in range(N):
     model.addConstr(a_x[k + 1] == a_x[k] + j_x[k] * dt)
     model.addConstr(a_y[k + 1] == a_y[k] + j_y[k] * dt)
 
+
+# Adding CBF constraints for maintaining y_min <= y <= y_max
+# c_min = 1.0  # constant for CBF on y_min
+# c_max = 1.0  # constant for CBF on y_max
+# for k in range(N + 1):
+#     # Ràng buộc CBF để đảm bảo y >= y_min
+#     model.addConstr(v_y[k] >= -c_min * (y[k] - y_min), name=f"CBF_y_min_{k}")
+#     # Ràng buộc CBF để đảm bảo y <= y_max
+#     model.addConstr(v_y[k] <= c_max * (y_max - y[k]), name=f"CBF_y_max_{k}")
+
 # Add constraints for theta and omega (equations 5 and 6 in the paper)
 for k in range(N+1):
     model.addConstr(v_y[k] >= v_x[k] * np.tan(theta_min))
@@ -92,6 +104,7 @@ for k in range(N+1):
     model.addConstr(a_y[k] >= -v_x[k] * omega_max)
     model.addConstr(a_y[k] <= v_x[k] * omega_max)
 
+c_bump = 0.1
 epsilon = 1e-6
 # Speed bump logical constraints using indicator constraints
 for k in range(N+1):
@@ -107,27 +120,33 @@ for k in range(N+1):
     model.addGenConstrIndicator(delta3[k], True, v_x[k] <= v_max_bump)
     model.addGenConstrIndicator(delta3[k], False, v_x[k] >= v_max_bump - epsilon)
 
+    #delta 4
+    model.addGenConstrIndicator(delta4[k], True, a_x[k] <= c_bump * (v_max_bump - v_x[k]), name=f"CBF_bump_{k}")
+
+
     # Logical implications from equation 7
     model.addConstr(-delta1[k] + delta3[k] <= 0)
     model.addConstr(-delta2[k] + delta3[k] <= 0)
     model.addConstr(delta1[k] + delta2[k] - delta3[k] <= 1)
 
+    model.addConstr(delta1[k] + delta2[k] - delta4[k] <= 1)
+
 # Obstacle avoidance constraints (Equation 11 from the paper)
 # Thay đổi ràng buộc tránh va chạm chướng ngại vật (Eq. 11 từ bài báo)
+d_min = 0.05  # Safety distance from obstacles
 for obs_id, obs in enumerate(obstacles):
     x_obs, y_obs = obs['x_center'], obs['y_center']
     L, W = obs['L'], obs['W']
 
     for k in range(N + 1):
         # Eq. 11a
-        model.addGenConstrIndicator(delta_obs[obs_id, 0][k], True, x[k] <= x_obs - L)
+        model.addGenConstrIndicator(delta_obs[obs_id, 0][k], True, x[k] <= x_obs - L - d_min)
         # Eq. 11b
-        model.addGenConstrIndicator(delta_obs[obs_id, 1][k], True, x[k] >= x_obs + L)
+        model.addGenConstrIndicator(delta_obs[obs_id, 1][k], True, x[k] >= x_obs + L + d_min)
         # Eq. 11c
-        model.addGenConstrIndicator(delta_obs[obs_id, 2][k], True, y[k] <= y_obs - W)
+        model.addGenConstrIndicator(delta_obs[obs_id, 2][k], True, y[k] <= y_obs - W - d_min)
         # Eq. 11d
-        model.addGenConstrIndicator(delta_obs[obs_id, 3][k], True, y[k] >= y_obs + W)
-
+        model.addGenConstrIndicator(delta_obs[obs_id, 3][k], True, y[k] >= y_obs + W + d_min)
         # Eq. 11e
         model.addConstr(delta_obs[obs_id, 0][k] + delta_obs[obs_id, 1][k] + delta_obs[obs_id, 2][k] + delta_obs[obs_id, 3][k] == 1)
 
@@ -279,9 +298,10 @@ axs[0, 0].set_ylabel('y (m)')
 axs[0, 0].set_title('Vehicle Trajectory with Obstacles and Speed Bump')
 
 # Vẽ chướng ngại vật
+# L: 0x, W: 0y
 for obs in obstacles:
     rect = plt.Rectangle((obs['x_center'] - obs['L'], obs['y_center'] - obs['W']),
-                         2 * obs['L'], 2 * obs['W'], fill=True, facecolor='red', alpha=0.5)
+                         2*obs['L'], 2*obs['W'], fill=True, facecolor='red', alpha=0.5)
     axs[0, 0].add_patch(rect)
 
 # Vẽ khu vực speed bump

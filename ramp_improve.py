@@ -8,10 +8,9 @@ import pygame
 import sys
 import math
 
-
 # Parameters
-T = 25  # Prediction horizon (seconds)
-dt = 0.3  # Time step (seconds)
+T = 20  # Prediction horizon (seconds)
+dt = 0.5  # Time step (seconds)
 N = int(T / dt)  # Number of time steps
 
 # Vehicle state bounds
@@ -19,14 +18,14 @@ x_min, x_max = 0, np.inf
 y_min, y_max = 0.2, 6  # Road width is 10 meters (2 lanes)
 v_x_min, v_x_max = 0, 10
 v_y_min, v_y_max = -1, 1
-a_x_min, a_x_max = -3, 3
+a_x_min, a_x_max = -2, 2
 a_y_min, a_y_max = -0.5, 0.5
-j_x_min, j_x_max = -2.5, 2.5
+j_x_min, j_x_max = -2., 2.
 j_y_min, j_y_max = -0.5, 0.5
 
 # Initial state and reference values
 x0, y0 = 5, 3.5  # Starting in the middle of the right lane
-v_x0, v_y0 = 5, 0  # Initial speed is 15 m/s
+v_x0, v_y0 = 5, 0  # Initial speed is 5 m/s
 a_x0, a_y0 = 0, 0
 v_r = 5.0  # Reference speed
 y_r = y0  # Reference lateral position (stay in lane)
@@ -37,8 +36,8 @@ same_lane_vehicles = [
 ]
 oncoming_vehicles = [
     {'x': 122, 'y': 2.5, 'speed': -5},
-    {'x': 90, 'y': 3.5, 'speed': -8},
-    {'x': 111, 'y': 4.5, 'speed': -8}
+    {'x': 90, 'y': 3.5, 'speed': -3},
+    {'x': 111, 'y': 4.5, 'speed': -5}
 ]
 
 # Safety distances
@@ -50,7 +49,7 @@ q1, q2, q3, q4, q5 = 2, 1, 10, 1, 2
 r1, r2 = 10, 10
 
 # Create the model
-model = gp.Model("Overtaking_MIQP")
+model = gp.Model("Overtaking_QP")
 
 # Create variables
 x = model.addVars(N + 1, lb=x_min, ub=x_max, name="x")
@@ -61,11 +60,6 @@ a_x = model.addVars(N + 1, lb=a_x_min, ub=a_x_max, name="a_x")
 a_y = model.addVars(N + 1, lb=a_y_min, ub=a_y_max, name="a_y")
 j_x = model.addVars(N, lb=j_x_min, ub=j_x_max, name="j_x")
 j_y = model.addVars(N, lb=j_y_min, ub=j_y_max, name="j_y")
-
-# Binary variables for vehicle avoidance
-delta_v = {}
-for v_id in range(len(same_lane_vehicles) + len(oncoming_vehicles)):
-    delta_v[v_id] = model.addVars(N + 1, vtype=GRB.BINARY, name=f"delta_v_{v_id}")
 
 # Set initial conditions
 model.addConstr(x[0] == x0)
@@ -84,25 +78,13 @@ for k in range(N):
     model.addConstr(a_x[k + 1] == a_x[k] + j_x[k] * dt)
     model.addConstr(a_y[k + 1] == a_y[k] + j_y[k] * dt)
 
-# Vehicle avoidance constraints using ramp barrier method
+# Collision avoidance constraints using convex quadratic constraints
 for k in range(N + 1):
-    # Same lane vehicles
-    for v_id, vehicle in enumerate(same_lane_vehicles):
+    for vehicle in same_lane_vehicles + oncoming_vehicles:
         x_v = vehicle['x'] + vehicle['speed'] * k * dt
         y_v = vehicle['y']
-        model.addGenConstrIndicator(delta_v[v_id][k], False,
-                                    -((x[k] - x_v) / L_v) + ((y[k] - y_v) / W_v) >= 1)
-        model.addGenConstrIndicator(delta_v[v_id][k], True,
-                                    ((x[k] - x_v) / L_v) + ((y[k] - y_v) / W_v) >= 1)
-
-    # Oncoming vehicles
-    for v_id, vehicle in enumerate(oncoming_vehicles, start=len(same_lane_vehicles)):
-        x_v = vehicle['x'] + vehicle['speed'] * k * dt
-        y_v = vehicle['y']
-        model.addGenConstrIndicator(delta_v[v_id][k], False,
-                                    ((x[k] - x_v) / L_v) + ((y[k] - y_v) / W_v) <= -1)
-        model.addGenConstrIndicator(delta_v[v_id][k], True,
-                                    -((x[k] - x_v) / L_v) + ((y[k] - y_v) / W_v) <= -1)
+        lhs = ((x[k] - x_v) / L_v) ** 2 + ((y[k] - y_v) / W_v) ** 2
+        model.addQConstr(lhs >= 1)
 
 # Ensure the ego vehicle returns to the original lane
 model.addConstr(y[N] == y_r)
@@ -111,24 +93,22 @@ model.addConstr(y[N] == y_r)
 obj = gp.QuadExpr()
 for k in range(N + 1):
     obj += (q1 * (v_x[k] - v_r) ** 2 + q2 * a_x[k] ** 2 + q3 * (y[k] - y_r) ** 2 +
-            + q4 * v_y[k] ** 2 + q5 * a_y[k] ** 2)
+            q4 * v_y[k] ** 2 + q5 * a_y[k] ** 2)
 for k in range(N):
     obj += r1 * j_x[k] ** 2 + r2 * j_y[k] ** 2
 
-# punishment for
-
-
-# Add time-dependent cost
-#time_weight = 0.1
-#for k in range(N):
-#    obj += time_weight * k  # Penalize later time steps more
-
 model.setObjective(obj, GRB.MINIMIZE)
+
+
+# Adjust solver parameters for speed
+model.Params.OutputFlag = 0  # Turn off Gurobi output
+model.Params.TimeLimit = 2  # Set a time limit of 5 seconds
+model.Params.OptimalityTol = 1e-4  # Increase optimality tolerance
 
 # Optimize the model
 model.optimize()
 
-# Extract results
+# Extract results (same as before)
 x_res = [x[k].X for k in range(N + 1)]
 y_res = [y[k].X for k in range(N + 1)]
 v_x_res = [v_x[k].X for k in range(N + 1)]
