@@ -6,8 +6,8 @@ import pygame
 import sys
 
 # Parameters
-T = 10  # Prediction horizon (seconds)
-dt = 0.1  # Time step (seconds)
+T = 20  # Prediction horizon (seconds)
+dt = 0.3  # Time step (seconds)
 N = int(T / dt)  # Number of time steps
 
 # Vehicle state bounds
@@ -25,7 +25,7 @@ theta_min, theta_max = -0.4, 0.4  # in radians
 omega_min, omega_max = -0.26, 0.26  # in radians/s
 
 # Initial state and reference values
-x0, y0 = 0, 2.5  # Starting in the middle of the right lane
+x0, y0 = 0, 3.5  # Starting in the middle of the right lane
 v_x0, v_y0 = 10, 0  # Initial speed is 15 m/s
 a_x0, a_y0 = 0, 0
 v_r = 10.0  # Reference speed
@@ -39,7 +39,7 @@ obstacles = [
 
 # Speed bump parameters
 x_bump_start, x_bump_end = 60, 65
-v_max_bump = 5
+v_max_bump = 3
 
 # Cost function weights
 q1, q2, q3, q4, q5 = 4, 1, 1, 1, 1
